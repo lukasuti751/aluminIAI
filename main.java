@@ -910,3 +910,79 @@ public final class aluminIAI {
             EnvelopeRecord rec = records.get(digestHex.toLowerCase(Locale.ROOT));
             return rec != null && rec.isValid(currentEpoch);
         }
+
+        public Map<String, Object> buildEnvelope(String digestHex) {
+            Map<String, Object> env = new LinkedHashMap<>();
+            env.put("digest", digestHex);
+            env.put("chainId", config.getChainId());
+            env.put("relay", config.getRelayAddress());
+            env.put("sink", config.getEnvelopeSinkAddress());
+            env.put("oracle", config.getSignalOracleAddress());
+            env.put("anchor", COLLECTIVE_ANCHOR_HEX);
+            return env;
+        }
+    }
+
+    public static final class PulseMetricsBuffer {
+        private final int capacity;
+        private final CopyOnWriteArrayList<Map<String, Object>> samples = new CopyOnWriteArrayList<>();
+        private final Map<String, AtomicLong> gauges = new ConcurrentHashMap<>();
+
+        public PulseMetricsBuffer(int capacity) {
+            this.capacity = Math.max(64, capacity);
+        }
+
+        public void recordGauge(String name, long value) {
+            gauges.computeIfAbsent(name, k -> new AtomicLong()).set(value);
+            Map<String, Object> sample = new LinkedHashMap<>();
+            sample.put("name", name);
+            sample.put("value", value);
+            sample.put("at", Instant.now().toString());
+            samples.add(sample);
+            while (samples.size() > capacity) {
+                samples.remove(0);
+            }
+        }
+
+        public void recordCounter(String name, long delta) {
+            gauges.computeIfAbsent(name, k -> new AtomicLong()).addAndGet(delta);
+        }
+
+        public int sampleCount() { return samples.size(); }
+    }
+
+    public static final class CortexGate {
+        public void requireGovernor(String actor, String expected) {
+            if (actor == null || expected == null || !actor.equalsIgnoreCase(expected)) {
+                throw new NiAl_UnauthorizedException();
+            }
+        }
+
+        public void requirePitMaster(String actor, String expected) {
+            requireGovernor(actor, expected);
+        }
+
+        public void requireValidAddress(String addr) {
+            if (addr == null || addr.isBlank() || !addr.startsWith("0x") || addr.length() != 42) {
+                throw new NiAl_InvalidAddressException(String.valueOf(addr));
+            }
+        }
+    }
+
+    public static final class CrownReportRenderer {
+        private static final DateTimeFormatter UTC_FMT =
+                DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC);
+
+        public String renderHealth(Map<String, Object> snapshot) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            pw.println("=== aluminIAI v2 health ===");
+            snapshot.forEach((k, v) -> pw.println("  " + k + ": " + v));
+            pw.println("  generated: " + UTC_FMT.format(Instant.now()));
+            pw.flush();
+            return sw.toString();
+        }
+
+        public String renderRings(List<BallotRing> rings) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
