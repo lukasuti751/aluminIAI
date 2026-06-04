@@ -74,3 +74,79 @@ public final class aluminIAI {
     public static final String CORTEX_SEED_HEX = "0x35C0bb6FffB2dA6dF7bB7FcBAEec6EEea8EFBd2b11EACEa84Ef1Ef36873a605E";
     public static final String COLLECTIVE_ANCHOR_HEX = "0xCEeAaCDDBA9237926CE73AFAF7D2fe7123B219364F8Aa46CBDCEda535CdaE122";
 
+    private final CortexRuntimeConfig runtimeConfig;
+    private final CortexCellRegistry cortexCellRegistry;
+    private final PulseRegistry pulseRegistry;
+    private final SynapseLaneBook synapseLaneBook;
+    private final BallotRingEngine ballotRingEngine;
+    private final SpindleArchive spindleArchive;
+    private final DispatchQueue dispatchQueue;
+    private final EnvelopeRelay envelopeRelay;
+    private final CollectiveJournal collectiveJournal;
+    private final PulseMetricsBuffer pulseMetricsBuffer;
+    private final CortexGate cortexGate;
+    private final CrownReportRenderer crownReportRenderer;
+    private final AtomicBoolean lanePaused;
+    private final AtomicLong lineEpoch;
+    private final Instant bootInstant;
+
+    public aluminIAI(CortexRuntimeConfig runtimeConfig) {
+        this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "runtimeConfig");
+        this.cortexCellRegistry = new CortexCellRegistry(MAX_CORTEX_CELLS);
+        this.pulseRegistry = new PulseRegistry(MAX_PULSE_SLOTS);
+        this.synapseLaneBook = new SynapseLaneBook(MAX_SYNAPSE_LANES);
+        this.ballotRingEngine = new BallotRingEngine(MAX_BALLOT_RINGS, MIN_RING_WEIGHT, MAX_RING_WEIGHT);
+        this.spindleArchive = new SpindleArchive(MAX_SPINDLE_RECORDS);
+        this.dispatchQueue = new DispatchQueue(MAX_DISPATCH_QUEUE);
+        this.envelopeRelay = new EnvelopeRelay(runtimeConfig);
+        this.collectiveJournal = new CollectiveJournal();
+        this.pulseMetricsBuffer = new PulseMetricsBuffer(METRIC_BUFFER_CAP);
+        this.cortexGate = new CortexGate();
+        this.crownReportRenderer = new CrownReportRenderer();
+        this.lanePaused = new AtomicBoolean(false);
+        this.lineEpoch = new AtomicLong(0L);
+        this.bootInstant = Instant.now();
+    }
+
+    public static aluminIAI bootstrapDefault() {
+        CortexRuntimeConfig cfg = new CortexRuntimeConfig(
+                DEFAULT_CHAIN_ID,
+                ADDRESS_A,
+                ADDRESS_B,
+                ADDRESS_C,
+                ADDRESS_D,
+                ADDRESS_E,
+                SYNAPSE_DOMAIN_HEX,
+                RELEASE_TAG
+        );
+        return new aluminIAI(cfg);
+    }
+
+    public CortexRuntimeConfig getRuntimeConfig() { return runtimeConfig; }
+    public CortexCellRegistry cells() { return cortexCellRegistry; }
+    public PulseRegistry pulses() { return pulseRegistry; }
+    public SynapseLaneBook lanes() { return synapseLaneBook; }
+    public BallotRingEngine ballots() { return ballotRingEngine; }
+    public SpindleArchive spindles() { return spindleArchive; }
+    public DispatchQueue dispatch() { return dispatchQueue; }
+    public EnvelopeRelay envelopes() { return envelopeRelay; }
+    public CollectiveJournal journal() { return collectiveJournal; }
+    public PulseMetricsBuffer metrics() { return pulseMetricsBuffer; }
+    public CortexGate gate() { return cortexGate; }
+    public CrownReportRenderer reports() { return crownReportRenderer; }
+
+    public boolean isLanePaused() { return lanePaused.get(); }
+
+    public void setLanePaused(boolean paused, String actorAddress) {
+        cortexGate.requireGovernor(actorAddress, runtimeConfig.getGovernorAddress());
+        lanePaused.set(paused);
+        collectiveJournal.record(new JournalEntry(
+                paused ? "Paused" : "Resumed",
+                actorAddress,
+                lineEpoch.get(),
+                Instant.now()
+        ));
+    }
+
+    public void transferPitMaster(String nextPitMaster, String actorAddress) {
+        cortexGate.requireGovernor(actorAddress, runtimeConfig.getGovernorAddress());
