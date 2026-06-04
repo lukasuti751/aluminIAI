@@ -454,3 +454,79 @@ public final class aluminIAI {
             m.put("lineId", lineId);
             m.put("laneTag", laneTag);
             m.put("digest", contentDigest);
+            m.put("stage", stage.name());
+            m.put("polish", polishScore);
+            return m;
+        }
+    }
+
+    public static final class PulseRegistry {
+        private final int capacity;
+        private final AtomicLong idSeq = new AtomicLong(0L);
+        private final AtomicLong lineSeq = new AtomicLong(0L);
+        private final Map<Long, PulseSlot> slots = new ConcurrentHashMap<>();
+        private final Map<Long, List<Long>> byLineId = new ConcurrentHashMap<>();
+
+        public PulseRegistry(int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        public int size() { return slots.size(); }
+
+        public long emit(String laneTag, String contentDigest, String authorAddress) {
+            if (slots.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("pulse slots");
+            }
+            long lineId = lineSeq.incrementAndGet();
+            long id = idSeq.incrementAndGet();
+            PulseSlot slot = new PulseSlot(id, lineId, laneTag, contentDigest, authorAddress);
+            slots.put(id, slot);
+            byLineId.computeIfAbsent(lineId, k -> new CopyOnWriteArrayList<>()).add(id);
+            return id;
+        }
+
+        public PulseSlot requirePulse(long pulseId) {
+            PulseSlot s = slots.get(pulseId);
+            if (s == null) {
+                throw new NiAl_NotFoundException("pulse:" + pulseId);
+            }
+            return s;
+        }
+
+        public void polish(long pulseId, int delta) {
+            PulseSlot s = requirePulse(pulseId);
+            s.polishScore = Math.min(900, s.polishScore + delta);
+            if (s.polishScore >= 140) s.stage = PulseStage.POLISHED;
+            if (s.polishScore >= 520) s.stage = PulseStage.CROWN_READY;
+        }
+
+        public List<PulseSlot> listByLine(long lineId) {
+            return byLineId.getOrDefault(lineId, List.of()).stream()
+                    .map(slots::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        }
+
+        public List<PulseSlot> crownReady() {
+            return slots.values().stream()
+                    .filter(p -> p.stage == PulseStage.CROWN_READY)
+                    .sorted(Comparator.comparingLong(p -> p.pulseId))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    public static final class SynapseLaneEntry {
+        public final long laneId;
+        public final long fromCellId;
+        public final long toCellId;
+        public final String signalDigest;
+        public final int amplitude;
+        public final long expiryLineEpoch;
+        public boolean dormant;
+
+        public SynapseLaneEntry(long laneId, long fromCellId, long toCellId, String signalDigest, int amplitude, long expiryLineEpoch) {
+            this.laneId = laneId;
+            this.fromCellId = fromCellId;
+            this.toCellId = toCellId;
+            this.signalDigest = signalDigest == null ? "" : signalDigest;
+            this.amplitude = Math.max(1, Math.min(240, amplitude));
