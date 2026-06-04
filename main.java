@@ -834,3 +834,79 @@ public final class aluminIAI {
     }
 
     public static final class JournalEntry {
+        public final String kind;
+        public final String actorAddress;
+        public final long lineEpoch;
+        public final Instant recordedAt;
+        public final Map<String, Object> meta;
+
+        public JournalEntry(String kind, String actorAddress, long lineEpoch, Instant recordedAt) {
+            this(kind, actorAddress, lineEpoch, recordedAt, Map.of());
+        }
+
+        public JournalEntry(String kind, String actorAddress, long lineEpoch, Instant recordedAt, Map<String, Object> meta) {
+            this.kind = kind;
+            this.actorAddress = actorAddress;
+            this.lineEpoch = lineEpoch;
+            this.recordedAt = recordedAt;
+            this.meta = meta == null ? Map.of() : Map.copyOf(meta);
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("kind", kind);
+            m.put("actor", actorAddress);
+            m.put("epoch", lineEpoch);
+            m.put("at", recordedAt.toString());
+            m.put("meta", meta);
+            return m;
+        }
+    }
+
+    public static final class CollectiveJournal {
+        private final CopyOnWriteArrayList<JournalEntry> entries = new CopyOnWriteArrayList<>();
+
+        public void record(JournalEntry entry) { entries.add(entry); }
+
+        public List<JournalEntry> tail(int limit) {
+            int size = entries.size();
+            int from = Math.max(0, size - limit);
+            return new ArrayList<>(entries.subList(from, size));
+        }
+    }
+
+    public static final class EnvelopeRecord {
+        public final String digestHex;
+        public final String attesterAddress;
+        public final long expiryEpoch;
+        public boolean revoked;
+
+        public EnvelopeRecord(String digestHex, String attesterAddress, long expiryEpoch) {
+            this.digestHex = digestHex;
+            this.attesterAddress = attesterAddress;
+            this.expiryEpoch = expiryEpoch;
+            this.revoked = false;
+        }
+
+        public boolean isValid(long epoch) {
+            return !revoked && epoch <= expiryEpoch;
+        }
+    }
+
+    public static final class EnvelopeRelay {
+        private final CortexRuntimeConfig config;
+        private final Map<String, EnvelopeRecord> records = new ConcurrentHashMap<>();
+
+        public EnvelopeRelay(CortexRuntimeConfig config) {
+            this.config = config;
+        }
+
+        public void seal(String digestHex, String attester, long currentEpoch) {
+            long expiry = currentEpoch + (ATTESTATION_TTL_SECONDS / 12L);
+            records.put(digestHex.toLowerCase(Locale.ROOT), new EnvelopeRecord(digestHex, attester, expiry));
+        }
+
+        public boolean verify(String digestHex, long currentEpoch) {
+            EnvelopeRecord rec = records.get(digestHex.toLowerCase(Locale.ROOT));
+            return rec != null && rec.isValid(currentEpoch);
+        }
