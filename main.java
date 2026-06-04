@@ -986,3 +986,79 @@ public final class aluminIAI {
         public String renderRings(List<BallotRing> rings) {
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
+            pw.println("=== open ballot rings ===");
+            for (BallotRing r : rings) {
+                pw.println("  " + r.toMap());
+            }
+            pw.flush();
+            return sw.toString();
+        }
+    }
+
+    public static final class CrownMeshLink {
+        public final long lineId;
+        public final long fromCell;
+        public final long toCell;
+        public final String linkDigest;
+
+        public CrownMeshLink(long lineId, long fromCell, long toCell, String linkDigest) {
+            this.lineId = lineId;
+            this.fromCell = fromCell;
+            this.toCell = toCell;
+            this.linkDigest = linkDigest;
+        }
+    }
+
+    public static final class CrownMeshIndex {
+        private final Map<Long, List<CrownMeshLink>> byLine = new ConcurrentHashMap<>();
+
+        public void link(long lineId, long fromCell, long toCell, String linkDigest) {
+            byLine.computeIfAbsent(lineId, k -> new CopyOnWriteArrayList<>())
+                    .add(new CrownMeshLink(lineId, fromCell, toCell, linkDigest));
+        }
+
+        public List<CrownMeshLink> linksOnLine(long lineId) {
+            return byLine.getOrDefault(lineId, List.of());
+        }
+
+        public int lineCount() { return byLine.size(); }
+    }
+
+    private final CrownMeshIndex crownMeshIndex = new CrownMeshIndex();
+
+    public CrownMeshIndex crownMesh() { return crownMeshIndex; }
+
+
+    public void meshWire_0(long lineId, long fromCell, long toCell) {
+        String digest = sha256Hex("mesh-0-" + lineId + "-" + fromCell + "-" + toCell);
+        crownMeshIndex.link(lineId, fromCell, toCell, digest);
+        long epoch = currentLineEpoch();
+        lanes().openLane(fromCell, toCell, digest, 70, epoch + 18);
+    }
+
+    public void meshWire_1(long lineId, long fromCell, long toCell) {
+        String digest = sha256Hex("mesh-1-" + lineId + "-" + fromCell + "-" + toCell);
+        crownMeshIndex.link(lineId, fromCell, toCell, digest);
+        long epoch = currentLineEpoch();
+        lanes().openLane(fromCell, toCell, digest, 75, epoch + 22);
+    }
+
+    public void meshWire_2(long lineId, long fromCell, long toCell) {
+        String digest = sha256Hex("mesh-2-" + lineId + "-" + fromCell + "-" + toCell);
+        crownMeshIndex.link(lineId, fromCell, toCell, digest);
+        long epoch = currentLineEpoch();
+        lanes().openLane(fromCell, toCell, digest, 80, epoch + 26);
+    }
+
+    public void meshWire_3(long lineId, long fromCell, long toCell) {
+        String digest = sha256Hex("mesh-3-" + lineId + "-" + fromCell + "-" + toCell);
+        crownMeshIndex.link(lineId, fromCell, toCell, digest);
+        long epoch = currentLineEpoch();
+        lanes().openLane(fromCell, toCell, digest, 85, epoch + 30);
+    }
+
+    public void meshWire_4(long lineId, long fromCell, long toCell) {
+        String digest = sha256Hex("mesh-4-" + lineId + "-" + fromCell + "-" + toCell);
+        crownMeshIndex.link(lineId, fromCell, toCell, digest);
+        long epoch = currentLineEpoch();
+        lanes().openLane(fromCell, toCell, digest, 90, epoch + 34);
