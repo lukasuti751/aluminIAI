@@ -530,3 +530,79 @@ public final class aluminIAI {
             this.toCellId = toCellId;
             this.signalDigest = signalDigest == null ? "" : signalDigest;
             this.amplitude = Math.max(1, Math.min(240, amplitude));
+            this.expiryLineEpoch = expiryLineEpoch;
+            this.dormant = false;
+        }
+
+        public boolean isLive(long currentEpoch) {
+            return !dormant && currentEpoch <= expiryLineEpoch;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("laneId", laneId);
+            m.put("from", fromCellId);
+            m.put("to", toCellId);
+            m.put("amplitude", amplitude);
+            m.put("dormant", dormant);
+            return m;
+        }
+    }
+
+    public static final class SynapseLaneBook {
+        private final int capacity;
+        private final AtomicLong idSeq = new AtomicLong(0L);
+        private final Map<Long, SynapseLaneEntry> lanes = new ConcurrentHashMap<>();
+
+        public SynapseLaneBook(int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        public int size() { return lanes.size(); }
+
+        public long openLane(long fromCellId, long toCellId, String signalDigest, int amplitude, long expiryLineEpoch) {
+            if (lanes.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("synapse lanes");
+            }
+            long id = idSeq.incrementAndGet();
+            lanes.put(id, new SynapseLaneEntry(id, fromCellId, toCellId, signalDigest, amplitude, expiryLineEpoch));
+            return id;
+        }
+
+        public SynapseLaneEntry requireLane(long laneId) {
+            SynapseLaneEntry e = lanes.get(laneId);
+            if (e == null) {
+                throw new NiAl_NotFoundException("lane:" + laneId);
+            }
+            return e;
+        }
+
+        public void requireLive(long laneId, long currentEpoch) {
+            SynapseLaneEntry e = requireLane(laneId);
+            if (!e.isLive(currentEpoch)) {
+                throw new NiAl_LaneDormantException(laneId);
+            }
+        }
+
+        public List<SynapseLaneEntry> outbound(long fromCellId, long currentEpoch) {
+            return lanes.values().stream()
+                    .filter(l -> l.fromCellId == fromCellId && l.isLive(currentEpoch))
+                    .sorted(Comparator.comparingInt(l -> l.amplitude).reversed())
+                    .collect(Collectors.toList());
+        }
+
+        public int liveCount(long currentEpoch) {
+            return (int) lanes.values().stream().filter(l -> l.isLive(currentEpoch)).count();
+        }
+    }
+
+    public enum RingStatus { OPEN, SETTLED, CLAIMED, FAILED }
+
+    public static final class BallotRing {
+        public final long ringId;
+        public final String claimDigest;
+        public final String proposerAddress;
+        public final int requiredTorque;
+        public final Instant openedAt;
+        public RingStatus status;
+        public final Map<String, Integer> votes;
