@@ -150,3 +150,79 @@ public final class aluminIAI {
 
     public void transferPitMaster(String nextPitMaster, String actorAddress) {
         cortexGate.requireGovernor(actorAddress, runtimeConfig.getGovernorAddress());
+        cortexGate.requireValidAddress(nextPitMaster);
+        runtimeConfig.assignPitMaster(nextPitMaster);
+        collectiveJournal.record(new JournalEntry(
+                "PitMasterMoved",
+                actorAddress,
+                lineEpoch.get(),
+                Instant.now(),
+                Map.of("next", nextPitMaster.trim())
+        ));
+    }
+
+    public long tickLineEpoch() {
+        long next = lineEpoch.incrementAndGet();
+        pulseMetricsBuffer.recordGauge("lineEpoch", next);
+        return next;
+    }
+
+    public long currentLineEpoch() { return lineEpoch.get(); }
+    public Instant getBootInstant() { return bootInstant; }
+
+    public void requireLiveLane() {
+        if (lanePaused.get()) {
+            throw new NiAl_LanePausedException();
+        }
+    }
+
+    public String computeSplitDigest(String laneTag, String pulseKey, byte[] payload) {
+        try {
+            MessageDigest md = MessageDigest.getInstance(DIGEST_ALGORITHM);
+            md.update(runtimeConfig.getDomainSeed());
+            md.update(laneTag.getBytes(StandardCharsets.UTF_8));
+            md.update(pulseKey.getBytes(StandardCharsets.UTF_8));
+            if (payload != null) {
+                md.update(payload);
+            }
+            byte[] hA = md.digest();
+            md.reset();
+            md.update(hA);
+            md.update(PULSE_SALT_HEX.getBytes(StandardCharsets.UTF_8));
+            md.update(ByteBuffer.allocate(8).putLong(runtimeConfig.getChainId()).array());
+            byte[] hB = md.digest();
+            byte[] packed = new byte[hA.length + hB.length];
+            System.arraycopy(hA, 0, packed, 0, hA.length);
+            System.arraycopy(hB, 0, packed, hA.length, hB.length);
+            return "0x" + HexFormat.of().formatHex(packed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new NiAl_DigestFailureException(e);
+        }
+    }
+
+    public Map<String, Object> buildHealthSnapshot() {
+        Map<String, Object> snap = new LinkedHashMap<>();
+        snap.put("engine", ENGINE_LABEL);
+        snap.put("release", RELEASE_TAG);
+        snap.put("chainId", runtimeConfig.getChainId());
+        snap.put("lineEpoch", lineEpoch.get());
+        snap.put("lanePaused", lanePaused.get());
+        snap.put("cortexCells", cortexCellRegistry.size());
+        snap.put("pulses", pulseRegistry.size());
+        snap.put("synapseLanes", synapseLaneBook.size());
+        snap.put("openBallots", ballotRingEngine.openCount());
+        snap.put("spindles", spindleArchive.size());
+        snap.put("pendingDispatch", dispatchQueue.pendingCount());
+        snap.put("bootUtc", bootInstant.toString());
+        snap.put("metricSamples", pulseMetricsBuffer.sampleCount());
+        return snap;
+    }
+
+    // --- Runtime configuration ---
+
+    public static final class CortexRuntimeConfig {
+        private final long chainId;
+        private final String governorAddress;
+        private String pitMasterAddress;
+        private final String signalOracleAddress;
+        private final String relayAddress;
