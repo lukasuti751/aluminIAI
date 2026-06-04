@@ -378,3 +378,79 @@ public final class aluminIAI {
     public static final class CortexCellRegistry {
         private final int capacity;
         private final AtomicLong idSeq = new AtomicLong(0L);
+        private final Map<Long, CortexCellRecord> cells = new ConcurrentHashMap<>();
+
+        public CortexCellRegistry(int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        public int size() { return cells.size(); }
+
+        public long enlist(String label, String operator, CellKind kind, int torque) {
+            if (cells.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("cortex cells");
+            }
+            long id = idSeq.incrementAndGet();
+            cells.put(id, new CortexCellRecord(id, label, operator, kind, torque));
+            return id;
+        }
+
+        public CortexCellRecord requireCell(long cellId) {
+            CortexCellRecord c = cells.get(cellId);
+            if (c == null) {
+                throw new NiAl_NotFoundException("cell:" + cellId);
+            }
+            return c;
+        }
+
+        public void pulseTouch(long cellId, long epoch) {
+            CortexCellRecord c = requireCell(cellId);
+            c.lastPulseEpoch = epoch;
+            c.state = CellState.ACTIVE;
+        }
+
+        public void isolate(long cellId) {
+            requireCell(cellId).state = CellState.ISOLATED;
+        }
+
+        public int totalTorque() {
+            return cells.values().stream()
+                    .filter(c -> c.state != CellState.RETIRED && c.state != CellState.ISOLATED)
+                    .mapToInt(c -> c.torque)
+                    .sum();
+        }
+
+        public Map<Long, CortexCellRecord> snapshot() {
+            return Collections.unmodifiableMap(new TreeMap<>(cells));
+        }
+    }
+
+    public enum PulseStage { RAW, POLISHED, CROWN_READY, SEALED }
+
+    public static final class PulseSlot {
+        public final long pulseId;
+        public final long lineId;
+        public final String laneTag;
+        public final String contentDigest;
+        public final String authorAddress;
+        public final Instant emittedAt;
+        public PulseStage stage;
+        public int polishScore;
+
+        public PulseSlot(long pulseId, long lineId, String laneTag, String contentDigest, String authorAddress) {
+            this.pulseId = pulseId;
+            this.lineId = lineId;
+            this.laneTag = laneTag == null ? "default" : laneTag;
+            this.contentDigest = contentDigest == null ? "" : contentDigest;
+            this.authorAddress = authorAddress;
+            this.emittedAt = Instant.now();
+            this.stage = PulseStage.RAW;
+            this.polishScore = 0;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("pulseId", pulseId);
+            m.put("lineId", lineId);
+            m.put("laneTag", laneTag);
+            m.put("digest", contentDigest);
