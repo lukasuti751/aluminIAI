@@ -682,3 +682,79 @@ public final class aluminIAI {
                     .orElse(Math.max(1, torque));
             ring.cast(voter, effective);
         }
+
+        public void requireSettled(long ringId) {
+            BallotRing r = requireRing(ringId);
+            if (r.status != RingStatus.SETTLED && r.status != RingStatus.CLAIMED) {
+                throw new NiAl_RingOpenException(ringId);
+            }
+        }
+
+        public int openCount() {
+            return (int) rings.values().stream().filter(r -> r.status == RingStatus.OPEN).count();
+        }
+
+        public List<BallotRing> listOpen() {
+            return rings.values().stream().filter(r -> r.status == RingStatus.OPEN).collect(Collectors.toList());
+        }
+    }
+
+    public static final class SpindleRecord {
+        public final long spindleId;
+        public final long boundPulseId;
+        public final String lineageTag;
+        public final String payloadDigest;
+        public final String depositorAddress;
+        public final Instant storedAt;
+        public boolean replicated;
+
+        public SpindleRecord(long spindleId, long boundPulseId, String lineageTag, String payloadDigest, String depositorAddress) {
+            this.spindleId = spindleId;
+            this.boundPulseId = boundPulseId;
+            this.lineageTag = lineageTag == null ? "root" : lineageTag;
+            this.payloadDigest = payloadDigest == null ? "" : payloadDigest;
+            this.depositorAddress = depositorAddress;
+            this.storedAt = Instant.now();
+            this.replicated = false;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("spindleId", spindleId);
+            m.put("pulseId", boundPulseId);
+            m.put("lineage", lineageTag);
+            m.put("replicated", replicated);
+            return m;
+        }
+    }
+
+    public static final class SpindleArchive {
+        private final int capacity;
+        private final AtomicLong idSeq = new AtomicLong(0L);
+        private final Map<Long, SpindleRecord> records = new ConcurrentHashMap<>();
+
+        public SpindleArchive(int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        public int size() { return records.size(); }
+
+        public long store(long boundPulseId, String lineageTag, String payloadDigest, String depositor) {
+            if (records.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("spindle archive");
+            }
+            long id = idSeq.incrementAndGet();
+            records.put(id, new SpindleRecord(id, boundPulseId, lineageTag, payloadDigest, depositor));
+            return id;
+        }
+
+        public SpindleRecord require(long spindleId) {
+            SpindleRecord r = records.get(spindleId);
+            if (r == null) {
+                throw new NiAl_NotFoundException("spindle:" + spindleId);
+            }
+            return r;
+        }
+
+        public void replicate(long spindleId) {
+            require(spindleId).replicated = true;
