@@ -758,3 +758,79 @@ public final class aluminIAI {
 
         public void replicate(long spindleId) {
             require(spindleId).replicated = true;
+        }
+    }
+
+    public enum DispatchState { QUEUED, ROUTED, DONE, ABORTED }
+
+    public static final class DispatchTicket {
+        public final long ticketId;
+        public final String taskDigest;
+        public final long cellId;
+        public final String requesterAddress;
+        public final int priority;
+        public final Instant queuedAt;
+        public DispatchState state;
+
+        public DispatchTicket(long ticketId, String taskDigest, long cellId, String requesterAddress, int priority) {
+            this.ticketId = ticketId;
+            this.taskDigest = taskDigest;
+            this.cellId = cellId;
+            this.requesterAddress = requesterAddress;
+            this.priority = Math.max(0, Math.min(9, priority));
+            this.queuedAt = Instant.now();
+            this.state = DispatchState.QUEUED;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ticketId", ticketId);
+            m.put("digest", taskDigest);
+            m.put("cellId", cellId);
+            m.put("state", state.name());
+            return m;
+        }
+    }
+
+    public static final class DispatchQueue {
+        private final int capacity;
+        private final AtomicLong idSeq = new AtomicLong(0L);
+        private final Map<Long, DispatchTicket> tickets = new ConcurrentHashMap<>();
+
+        public DispatchQueue(int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        public int pendingCount() {
+            return (int) tickets.values().stream()
+                    .filter(t -> t.state == DispatchState.QUEUED || t.state == DispatchState.ROUTED)
+                    .count();
+        }
+
+        public long enqueue(String taskDigest, long cellId, String requester, int priority) {
+            if (tickets.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("dispatch queue");
+            }
+            long id = idSeq.incrementAndGet();
+            tickets.put(id, new DispatchTicket(id, taskDigest, cellId, requester, priority));
+            return id;
+        }
+
+        public DispatchTicket requireTicket(long ticketId) {
+            DispatchTicket t = tickets.get(ticketId);
+            if (t == null) {
+                throw new NiAl_NotFoundException("ticket:" + ticketId);
+            }
+            return t;
+        }
+
+        public void route(long ticketId) {
+            requireTicket(ticketId).state = DispatchState.ROUTED;
+        }
+
+        public void complete(long ticketId) {
+            requireTicket(ticketId).state = DispatchState.DONE;
+        }
+    }
+
+    public static final class JournalEntry {
