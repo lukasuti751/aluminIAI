@@ -606,3 +606,79 @@ public final class aluminIAI {
         public final Instant openedAt;
         public RingStatus status;
         public final Map<String, Integer> votes;
+        public int accumulatedTorque;
+
+        public BallotRing(long ringId, String claimDigest, String proposerAddress, int requiredTorque) {
+            this.ringId = ringId;
+            this.claimDigest = claimDigest;
+            this.proposerAddress = proposerAddress;
+            this.requiredTorque = Math.max(MIN_RING_WEIGHT, requiredTorque);
+            this.openedAt = Instant.now();
+            this.status = RingStatus.OPEN;
+            this.votes = new ConcurrentHashMap<>();
+            this.accumulatedTorque = 0;
+        }
+
+        public void cast(String voter, int torque) {
+            if (status != RingStatus.OPEN) {
+                throw new IllegalStateException("NiAl: ring closed");
+            }
+            votes.merge(voter, torque, Integer::sum);
+            accumulatedTorque += torque;
+            if (accumulatedTorque >= requiredTorque) {
+                status = RingStatus.SETTLED;
+            }
+        }
+
+        public void claim() { status = RingStatus.CLAIMED; }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ringId", ringId);
+            m.put("claim", claimDigest);
+            m.put("torque", accumulatedTorque + "/" + requiredTorque);
+            m.put("status", status.name());
+            return m;
+        }
+    }
+
+    public static final class BallotRingEngine {
+        private final int capacity;
+        private final int minTorque;
+        private final int maxTorque;
+        private final AtomicLong idSeq = new AtomicLong(0L);
+        private final Map<Long, BallotRing> rings = new ConcurrentHashMap<>();
+
+        public BallotRingEngine(int capacity, int minTorque, int maxTorque) {
+            this.capacity = Math.max(1, capacity);
+            this.minTorque = minTorque;
+            this.maxTorque = maxTorque;
+        }
+
+        public long open(String claimDigest, String proposer, int requiredTorque) {
+            if (rings.size() >= capacity) {
+                throw new NiAl_CapacityExceededException("ballot rings");
+            }
+            int clamped = Math.max(minTorque, Math.min(maxTorque, requiredTorque));
+            long id = idSeq.incrementAndGet();
+            rings.put(id, new BallotRing(id, claimDigest, proposer, clamped));
+            return id;
+        }
+
+        public BallotRing requireRing(long ringId) {
+            BallotRing r = rings.get(ringId);
+            if (r == null) {
+                throw new NiAl_NotFoundException("ring:" + ringId);
+            }
+            return r;
+        }
+
+        public void cast(long ringId, String voter, int torque, CortexCellRegistry registry) {
+            BallotRing ring = requireRing(ringId);
+            int effective = registry.snapshot().values().stream()
+                    .filter(c -> c.operatorAddress.equalsIgnoreCase(voter))
+                    .mapToInt(c -> c.torque)
+                    .findFirst()
+                    .orElse(Math.max(1, torque));
+            ring.cast(voter, effective);
+        }
