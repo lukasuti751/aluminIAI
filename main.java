@@ -302,3 +302,79 @@ public final class aluminIAI {
     }
 
     public static class NiAl_NotFoundException extends RuntimeException {
+        public NiAl_NotFoundException(String id) {
+            super("NiAl: not found — " + id);
+        }
+    }
+
+    public static class NiAl_InvalidAddressException extends RuntimeException {
+        public NiAl_InvalidAddressException(String addr) {
+            super("NiAl: bad address — " + addr);
+        }
+    }
+
+    public static class NiAl_UnauthorizedException extends RuntimeException {
+        public NiAl_UnauthorizedException() { super("NiAl: unauthorized"); }
+    }
+
+    public static class NiAl_DigestFailureException extends RuntimeException {
+        public NiAl_DigestFailureException(Throwable cause) {
+            super("NiAl: digest failure", cause);
+        }
+    }
+
+    public static class NiAl_RingOpenException extends RuntimeException {
+        public NiAl_RingOpenException(long ringId) {
+            super("NiAl: ring not settled — " + ringId);
+        }
+    }
+
+    public static class NiAl_LaneDormantException extends RuntimeException {
+        public NiAl_LaneDormantException(long laneId) {
+            super("NiAl: lane dormant — " + laneId);
+        }
+    }
+
+    public enum CellKind { PROBE, FORGE, FUSION, ORACLE_TIE }
+
+    public enum CellState { IDLE, ACTIVE, ISOLATED, RETIRED }
+
+    public static final class CortexCellRecord {
+        public final long cellId;
+        public final String label;
+        public final String operatorAddress;
+        public final CellKind kind;
+        public final int torque;
+        public final Instant enlistedAt;
+        public CellState state;
+        public long lastPulseEpoch;
+        public final List<Long> boundPulseIds;
+
+        public CortexCellRecord(long cellId, String label, String operatorAddress, CellKind kind, int torque) {
+            this.cellId = cellId;
+            this.label = label == null ? "cell-" + cellId : label;
+            this.operatorAddress = operatorAddress;
+            this.kind = kind == null ? CellKind.FORGE : kind;
+            this.torque = Math.max(1, Math.min(48, torque));
+            this.enlistedAt = Instant.now();
+            this.state = CellState.IDLE;
+            this.lastPulseEpoch = 0L;
+            this.boundPulseIds = new ArrayList<>();
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("cellId", cellId);
+            m.put("label", label);
+            m.put("operator", operatorAddress);
+            m.put("kind", kind.name());
+            m.put("torque", torque);
+            m.put("state", state.name());
+            m.put("pulses", boundPulseIds.size());
+            return m;
+        }
+    }
+
+    public static final class CortexCellRegistry {
+        private final int capacity;
+        private final AtomicLong idSeq = new AtomicLong(0L);
