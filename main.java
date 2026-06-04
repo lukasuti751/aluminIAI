@@ -226,3 +226,79 @@ public final class aluminIAI {
         private String pitMasterAddress;
         private final String signalOracleAddress;
         private final String relayAddress;
+        private final String envelopeSinkAddress;
+        private final String synapseDomainHex;
+        private final String versionTag;
+        private final byte[] domainSeed;
+
+        public CortexRuntimeConfig(
+                long chainId,
+                String governorAddress,
+                String pitMasterAddress,
+                String signalOracleAddress,
+                String relayAddress,
+                String envelopeSinkAddress,
+                String synapseDomainHex,
+                String versionTag
+        ) {
+            this.chainId = chainId;
+            this.governorAddress = normalizeAddress(governorAddress);
+            this.pitMasterAddress = normalizeAddress(pitMasterAddress);
+            this.signalOracleAddress = normalizeAddress(signalOracleAddress);
+            this.relayAddress = normalizeAddress(relayAddress);
+            this.envelopeSinkAddress = normalizeAddress(envelopeSinkAddress);
+            this.synapseDomainHex = synapseDomainHex == null ? "" : synapseDomainHex.trim();
+            this.versionTag = versionTag == null ? RELEASE_TAG : versionTag;
+            this.domainSeed = buildDomainSeed(this.chainId, this.synapseDomainHex, this.versionTag);
+        }
+
+        private static byte[] buildDomainSeed(long chainId, String domainHex, String version) {
+            try {
+                MessageDigest md = MessageDigest.getInstance(DIGEST_ALGORITHM);
+                md.update(DOMAIN_SEPARATOR.getBytes(StandardCharsets.UTF_8));
+                md.update(ByteBuffer.allocate(8).putLong(chainId).array());
+                md.update(domainHex.getBytes(StandardCharsets.UTF_8));
+                md.update(version.getBytes(StandardCharsets.UTF_8));
+                return md.digest();
+            } catch (NoSuchAlgorithmException e) {
+                throw new NiAl_DigestFailureException(e);
+            }
+        }
+
+        private static String normalizeAddress(String addr) {
+            if (addr == null || addr.isBlank()) {
+                throw new NiAl_InvalidAddressException("empty");
+            }
+            String trimmed = addr.trim();
+            if (!trimmed.startsWith("0x") || trimmed.length() != 42) {
+                throw new NiAl_InvalidAddressException(trimmed);
+            }
+            return trimmed;
+        }
+
+        void assignPitMaster(String next) {
+            this.pitMasterAddress = normalizeAddress(next);
+        }
+
+        public long getChainId() { return chainId; }
+        public String getGovernorAddress() { return governorAddress; }
+        public String getPitMasterAddress() { return pitMasterAddress; }
+        public String getSignalOracleAddress() { return signalOracleAddress; }
+        public String getRelayAddress() { return relayAddress; }
+        public String getEnvelopeSinkAddress() { return envelopeSinkAddress; }
+        public String getSynapseDomainHex() { return synapseDomainHex; }
+        public String getVersionTag() { return versionTag; }
+        public byte[] getDomainSeed() { return Arrays.copyOf(domainSeed, domainSeed.length); }
+    }
+
+    public static class NiAl_LanePausedException extends RuntimeException {
+        public NiAl_LanePausedException() { super("NiAl: lane paused"); }
+    }
+
+    public static class NiAl_CapacityExceededException extends RuntimeException {
+        public NiAl_CapacityExceededException(String detail) {
+            super("NiAl: capacity — " + detail);
+        }
+    }
+
+    public static class NiAl_NotFoundException extends RuntimeException {
